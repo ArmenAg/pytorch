@@ -102,13 +102,18 @@ struct ConstantString : at::Retainable {
   TORCH_API friend std::ostream& operator<<(std::ostream& out, const ConstantString & v);
 };
 
+struct World {
+  World() : world_id(1) {}
+  int64_t world_id;
+};
+
 template<typename T>
-struct ConstantList;
+struct List;
 struct IValue;
-using Tuple = ConstantList<IValue>;
-using IntList = ConstantList<int64_t>;
-using TensorList = ConstantList<at::Tensor>;
-using DoubleList = ConstantList<double>;
+using Tuple = List<IValue>;
+using IntList = List<int64_t>;
+using TensorList = List<at::Tensor>;
+using DoubleList = List<double>;
 
 // IValue is the generic tagged union used by the interpreter to hold
 // all value types.
@@ -118,7 +123,16 @@ using DoubleList = ConstantList<double>;
 // retain/release calls.
 
 #define TORCH_FORALL_TAGS(_) \
-  _(None) _(Tensor) _(Double) _(Int) _(Tuple) _(IntList) _(DoubleList) _(String) _(TensorList)
+  _(None) \
+  _(Tensor) \
+  _(Double) \
+  _(Int) \
+  _(Tuple) \
+  _(IntList) \
+  _(DoubleList) \
+  _(String) \
+  _(TensorList) \
+  _(World) \
 
 struct IValue {
   IValue()
@@ -197,6 +211,22 @@ struct IValue {
   double toDouble() const {
     JIT_ASSERT(isDouble());
     return as_double;
+  }
+
+  // World
+  IValue(World w)
+  : tag(Tag::World), retainable(false) {
+    as_world = w;
+  }
+  bool isWorld() const { return Tag::World == tag; }
+   World toWorld() const {
+    JIT_ASSERT(isWorld());
+    return as_world;
+  }
+  TORCH_API std::ostream& formatWorld(std::ostream& out) const {
+    JIT_ASSERT(isWorld());
+    out << as_world.world_id;
+    return out;
   }
 
   // Int
@@ -363,6 +393,7 @@ private:
     at::Retainable* as_retainable;
     double as_double;
     int64_t as_int;
+    World as_world;
     // this type should be as big as all the other types because it will
     // be used to copy the union's value in certain cases
     int64_t payload;
@@ -396,20 +427,20 @@ DEFINE_TO(bool, toInt)
 DEFINE_TO(std::vector<int64_t>, toIntListRef)
 DEFINE_TO(std::vector<double>, toDoubleListRef)
 DEFINE_TO(std::vector<at::Tensor>, toTensorListRef)
+DEFINE_TO(World, toWorld)
 
 #undef DEFINE_TO
 
-// non-mutable list
-template<typename Elem>
-struct ConstantList : at::Retainable {
+
+template <typename Elem>
+struct List : at::Retainable {
  private:
-  ConstantList(std::vector<Elem> elements_)
-  : elements_(std::move(elements_)) {}
+  List(std::vector<Elem> elements_) : elements_(std::move(elements_)) {}
   std::vector<Elem> elements_;
+
  public:
-  static Shared<ConstantList<Elem>> create(std::vector<Elem> elements_) {
-    return Shared<ConstantList<Elem>>(
-        new ConstantList<Elem>(std::move(elements_)), false);
+  static Shared<List<Elem>> create(std::vector<Elem> elements_) {
+    return Shared<List<Elem>>(new List<Elem>(std::move(elements_)), false);
   }
   const std::vector<Elem>& elements() const {
     return elements_;
@@ -418,8 +449,15 @@ struct ConstantList : at::Retainable {
     return elements();
   }
 
+  std::vector<Elem>& elements() {
+    return elements_;
+  }
+  operator std::vector<Elem>&() {
+    return elements();
+  }
+
   template<typename E>
-  TORCH_API friend std::ostream& operator<<(std::ostream& out, const ConstantList<E> & v);
+  TORCH_API friend std::ostream& operator<<(std::ostream& out, const List<E> & v);
 };
 
 
